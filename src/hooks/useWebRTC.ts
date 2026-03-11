@@ -14,12 +14,12 @@ const PEER_CONFIG = {
   },
 };
 
-// 统一媒体约束，避免 Windows 等设备默认高分辨率导致主叫时 offer 过重、对方卡死
+// 稍保守的约束，减轻偶发卡顿（尤其 Windows 主叫场景）
 const MEDIA_CONSTRAINTS: MediaStreamConstraints = {
   video: {
-    width: { ideal: 1280, max: 1280 },
-    height: { ideal: 720, max: 720 },
-    frameRate: { ideal: 24, max: 30 },
+    width: { ideal: 960, max: 960 },
+    height: { ideal: 540, max: 540 },
+    frameRate: { ideal: 20, max: 24 },
   },
   audio: true,
 };
@@ -45,6 +45,30 @@ export function useWebRTC() {
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
+  const remoteRecoveryTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const attachRemoteStream = useCallback((stream: MediaStream) => {
+    const el = remoteVideoRef.current;
+    if (!el) return;
+    if (remoteRecoveryTimerRef.current) {
+      clearInterval(remoteRecoveryTimerRef.current);
+      remoteRecoveryTimerRef.current = null;
+    }
+    el.srcObject = stream;
+    el.play().catch(() => {});
+    remoteRecoveryTimerRef.current = setInterval(() => {
+      const video = remoteVideoRef.current;
+      if (!video?.srcObject) return;
+      if (video.paused || video.readyState < 2) video.play().catch(() => {});
+    }, 2500);
+  }, []);
+
+  const clearRemoteRecovery = useCallback(() => {
+    if (remoteRecoveryTimerRef.current) {
+      clearInterval(remoteRecoveryTimerRef.current);
+      remoteRecoveryTimerRef.current = null;
+    }
+  }, []);
 
   const initPeer = useCallback(() => {
     if (peerRef.current) return;
@@ -65,33 +89,29 @@ export function useWebRTC() {
         setError("本地媒体未就绪，请刷新后重试");
         return;
       }
-      // 接听方延迟 answer，缓解 Windows 主叫时 offer 与 answer 时序冲突导致的卡死
       const answerTimer = setTimeout(() => {
         call.answer(streamToSend);
         call.on("stream", (stream) => {
           setRemoteStream(stream);
           setStatus("connected");
-          const el = remoteVideoRef.current;
-          if (el) {
-            el.srcObject = stream;
-            el.play().catch(() => {});
-          }
+          attachRemoteStream(stream);
         });
         call.on("close", () => {
+          clearRemoteRecovery();
           setRemoteStream(null);
           setConnectedRemoteId("");
           setStatus("idle");
         });
         currentCallRef.current = call;
-      }, 150);
+      }, 220);
       call.on("close", () => clearTimeout(answerTimer));
     });
 
-    peer.on("error", (err) => {
+    peer.on("error", (err: { message: string }) => {
       setError(err.message);
       setStatus("error");
     });
-  }, []);
+  }, [attachRemoteStream, clearRemoteRecovery]);
 
   useEffect(() => {
     let stream: MediaStream | null = null;
@@ -131,12 +151,10 @@ export function useWebRTC() {
       mediaCall.on("stream", (stream) => {
         setRemoteStream(stream);
         setStatus("connected");
-        if (remoteVideoRef.current) {
-          remoteVideoRef.current.srcObject = stream;
-          remoteVideoRef.current.play().catch(() => {});
-        }
+        attachRemoteStream(stream);
       });
       mediaCall.on("close", () => {
+        clearRemoteRecovery();
         setRemoteStream(null);
         setConnectedRemoteId("");
         setStatus("idle");
@@ -147,20 +165,21 @@ export function useWebRTC() {
         setStatus("idle");
       });
       currentCallRef.current = mediaCall;
-    }, 220);
-  }, [remoteId, localStream]);
+    }, 350);
+  }, [remoteId, localStream, attachRemoteStream, clearRemoteRecovery]);
 
   const hangUp = useCallback(() => {
     if (pendingCallTimerRef.current) {
       clearTimeout(pendingCallTimerRef.current);
       pendingCallTimerRef.current = null;
     }
+    clearRemoteRecovery();
     currentCallRef.current?.close();
     currentCallRef.current = null;
     setRemoteStream(null);
     setConnectedRemoteId("");
     setStatus("idle");
-  }, []);
+  }, [clearRemoteRecovery]);
 
   const toggleMute = useCallback(() => {
     if (!localStream) return;
