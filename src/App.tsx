@@ -11,6 +11,7 @@ export default function App() {
     status,
     error,
     localStream,
+    connectedRemoteId,
     isMuted,
     isVideoOff,
     call,
@@ -137,12 +138,29 @@ export default function App() {
                 className="w-full h-full object-cover absolute inset-0"
               />
               {status !== "connected" && (
-                <span className="relative z-10 text-zinc-500 text-sm">
-                  等待对方连接...
+                <span className="relative z-10 flex flex-col items-center gap-2 text-zinc-500">
+                  {status === "connecting" ? (
+                    "连接中"
+                  ) : (
+                    <svg
+                      className="w-12 h-12 opacity-50"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                      aria-hidden
+                    >
+                      <circle cx="12" cy="12" r="10" strokeWidth={1.5} />
+                      <path
+                        strokeLinecap="round"
+                        strokeWidth={1.5}
+                        d="M4 4l16 16"
+                      />
+                    </svg>
+                  )}
                 </span>
               )}
               <span className="absolute bottom-2 left-2 text-xs bg-black/60 px-2 py-1 rounded z-10">
-                对方
+                {connectedRemoteId ? connectedRemoteId : "对方"}
               </span>
             </div>
           </div>

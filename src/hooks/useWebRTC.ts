@@ -17,6 +17,7 @@ export function useWebRTC() {
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
+  const [connectedRemoteId, setConnectedRemoteId] = useState<string>("");
 
   const peerRef = useRef<Peer | null>(null);
   const currentCallRef = useRef<MediaConnection | null>(null);
@@ -37,6 +38,7 @@ export function useWebRTC() {
 
     peer.on("call", (call) => {
       setStatus("connecting");
+      setConnectedRemoteId(call.peer);
       call.answer(localStreamRef.current ?? undefined);
       call.on("stream", (stream) => {
         setRemoteStream(stream);
@@ -45,6 +47,7 @@ export function useWebRTC() {
       });
       call.on("close", () => {
         setRemoteStream(null);
+        setConnectedRemoteId("");
         setStatus("idle");
       });
       currentCallRef.current = call;
@@ -84,6 +87,7 @@ export function useWebRTC() {
     setError(null);
     setStatus("connecting");
     const call = peerRef.current.call(remoteId, localStream);
+    setConnectedRemoteId(remoteId.trim());
     call.on("stream", (stream) => {
       setRemoteStream(stream);
       setStatus("connected");
@@ -91,10 +95,12 @@ export function useWebRTC() {
     });
     call.on("close", () => {
       setRemoteStream(null);
+      setConnectedRemoteId("");
       setStatus("idle");
     });
     call.on("error", (err) => {
       setError(err.message ?? "连接失败");
+      setConnectedRemoteId("");
       setStatus("idle");
     });
     currentCallRef.current = call;
@@ -104,6 +110,7 @@ export function useWebRTC() {
     currentCallRef.current?.close();
     currentCallRef.current = null;
     setRemoteStream(null);
+    setConnectedRemoteId("");
     setStatus("idle");
   }, []);
 
@@ -129,6 +136,7 @@ export function useWebRTC() {
     error,
     localStream,
     remoteStream,
+    connectedRemoteId,
     isMuted,
     isVideoOff,
     call,
