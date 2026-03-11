@@ -10,7 +10,6 @@ export default function App() {
     setRemoteId,
     status,
     error,
-    localStream,
     connectedRemoteId,
     isMuted,
     isVideoOff,
