@@ -22,6 +22,7 @@ export function useWebRTC() {
   const currentCallRef = useRef<MediaConnection | null>(null);
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
+  const localStreamRef = useRef<MediaStream | null>(null);
 
   const initPeer = useCallback(() => {
     if (peerRef.current) return;
@@ -36,7 +37,7 @@ export function useWebRTC() {
 
     peer.on("call", (call) => {
       setStatus("connecting");
-      call.answer(localStream ?? undefined);
+      call.answer(localStreamRef.current ?? undefined);
       call.on("stream", (stream) => {
         setRemoteStream(stream);
         setStatus("connected");
@@ -53,7 +54,7 @@ export function useWebRTC() {
       setError(err.message);
       setStatus("error");
     });
-  }, [localStream]);
+  }, []);
 
   useEffect(() => {
     let stream: MediaStream | null = null;
@@ -61,6 +62,7 @@ export function useWebRTC() {
       .getUserMedia({ video: true, audio: true })
       .then((s) => {
         stream = s;
+        localStreamRef.current = s;
         setLocalStream(s);
         if (localVideoRef.current) localVideoRef.current.srcObject = s;
         initPeer();
