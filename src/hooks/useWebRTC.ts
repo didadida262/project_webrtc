@@ -2,7 +2,27 @@ import Peer, { type MediaConnection } from "peerjs";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 const PEER_HOST = "0.peerjs.com";
-const PEER_CONFIG = { host: PEER_HOST, secure: true, debug: 0 };
+const PEER_CONFIG = {
+  host: PEER_HOST,
+  secure: true,
+  debug: 0,
+  config: {
+    iceServers: [
+      { urls: "stun:stun.l.google.com:19302" },
+      { urls: "stun:stun1.l.google.com:19302" },
+    ],
+  },
+};
+
+// 统一媒体约束，避免 Windows 等设备默认高分辨率导致主叫时 offer 过重、对方卡死
+const MEDIA_CONSTRAINTS: MediaStreamConstraints = {
+  video: {
+    width: { ideal: 1280, max: 1280 },
+    height: { ideal: 720, max: 720 },
+    frameRate: { ideal: 24, max: 30 },
+  },
+  audio: true,
+};
 
 function randomId(): string {
   return Math.random().toString(36).slice(2, 10);
@@ -39,18 +59,31 @@ export function useWebRTC() {
     peer.on("call", (call) => {
       setStatus("connecting");
       setConnectedRemoteId(call.peer);
-      call.answer(localStreamRef.current ?? undefined);
-      call.on("stream", (stream) => {
-        setRemoteStream(stream);
-        setStatus("connected");
-        if (remoteVideoRef.current) remoteVideoRef.current.srcObject = stream;
-      });
-      call.on("close", () => {
-        setRemoteStream(null);
-        setConnectedRemoteId("");
-        setStatus("idle");
-      });
-      currentCallRef.current = call;
+      const streamToSend = localStreamRef.current;
+      if (!streamToSend?.active) {
+        setError("本地媒体未就绪，请刷新后重试");
+        return;
+      }
+      // 接听方延迟 answer，缓解 Windows 主叫时 offer 与 answer 时序冲突导致的卡死
+      const answerTimer = setTimeout(() => {
+        call.answer(streamToSend);
+        call.on("stream", (stream) => {
+          setRemoteStream(stream);
+          setStatus("connected");
+          const el = remoteVideoRef.current;
+          if (el) {
+            el.srcObject = stream;
+            el.play().catch(() => {});
+          }
+        });
+        call.on("close", () => {
+          setRemoteStream(null);
+          setConnectedRemoteId("");
+          setStatus("idle");
+        });
+        currentCallRef.current = call;
+      }, 150);
+      call.on("close", () => clearTimeout(answerTimer));
     });
 
     peer.on("error", (err) => {
@@ -62,7 +95,7 @@ export function useWebRTC() {
   useEffect(() => {
     let stream: MediaStream | null = null;
     navigator.mediaDevices
-      .getUserMedia({ video: true, audio: true })
+      .getUserMedia(MEDIA_CONSTRAINTS)
       .then((s) => {
         stream = s;
         localStreamRef.current = s;
