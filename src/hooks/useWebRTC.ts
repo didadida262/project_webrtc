@@ -41,6 +41,7 @@ export function useWebRTC() {
 
   const peerRef = useRef<Peer | null>(null);
   const currentCallRef = useRef<MediaConnection | null>(null);
+  const pendingCallTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
@@ -119,27 +120,41 @@ export function useWebRTC() {
     }
     setError(null);
     setStatus("connecting");
-    const call = peerRef.current.call(remoteId, localStream);
     setConnectedRemoteId(remoteId.trim());
-    call.on("stream", (stream) => {
-      setRemoteStream(stream);
-      setStatus("connected");
-      if (remoteVideoRef.current) remoteVideoRef.current.srcObject = stream;
-    });
-    call.on("close", () => {
-      setRemoteStream(null);
-      setConnectedRemoteId("");
-      setStatus("idle");
-    });
-    call.on("error", (err) => {
-      setError(err.message ?? "连接失败");
-      setConnectedRemoteId("");
-      setStatus("idle");
-    });
-    currentCallRef.current = call;
+    const id = remoteId.trim();
+    const streamToSend = localStream;
+    // 主叫端延迟发起 call，避免部分环境(如 Windows 主叫)下 offer 过早发出导致卡死
+    pendingCallTimerRef.current = setTimeout(() => {
+      pendingCallTimerRef.current = null;
+      if (!peerRef.current || !streamToSend.active) return;
+      const mediaCall = peerRef.current.call(id, streamToSend);
+      mediaCall.on("stream", (stream) => {
+        setRemoteStream(stream);
+        setStatus("connected");
+        if (remoteVideoRef.current) {
+          remoteVideoRef.current.srcObject = stream;
+          remoteVideoRef.current.play().catch(() => {});
+        }
+      });
+      mediaCall.on("close", () => {
+        setRemoteStream(null);
+        setConnectedRemoteId("");
+        setStatus("idle");
+      });
+      mediaCall.on("error", (err: { message: string }) => {
+        setError(err.message ?? "连接失败");
+        setConnectedRemoteId("");
+        setStatus("idle");
+      });
+      currentCallRef.current = mediaCall;
+    }, 220);
   }, [remoteId, localStream]);
 
   const hangUp = useCallback(() => {
+    if (pendingCallTimerRef.current) {
+      clearTimeout(pendingCallTimerRef.current);
+      pendingCallTimerRef.current = null;
+    }
     currentCallRef.current?.close();
     currentCallRef.current = null;
     setRemoteStream(null);
